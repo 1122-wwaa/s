@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>朋友圈</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
+    body { background: #f7f7f7; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    .header { background: #fff; padding: 15px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #eee; }
+    .back-btn { font-size: 16px; color: #333; cursor: pointer; }
+    .header-title { font-size: 18px; font-weight: 600; }
+    .action-btn { font-size: 20px; cursor: pointer; }
+    
+    .moment-list { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+    
+    /* 封面区 */
+    .cover-area { width: 100%; height: 180px; background: #c7b39e; position: relative; cursor: pointer; background-size: cover; background-position: center; }
+    .cover-area::after { content: '点击更换背景'; position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.5); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+    
+    .moment-card { display: flex; padding: 15px; border-bottom: 1px solid #eee; background: #fff; gap: 10px; }
+    .moment-avatar { width: 40px; height: 40px; border-radius: 5px; background: #ddd; flex-shrink: 0; }
+    .moment-content { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+    .moment-name { color: #576b95; font-weight: 600; font-size: 15px; }
+    .moment-text { font-size: 15px; color: #333; line-height: 1.5; }
+    .moment-time { font-size: 12px; color: #999; }
+    
+    .moment-actions { display: flex; gap: 15px; margin-top: 5px; }
+    .action-icon { font-size: 13px; color: #666; cursor: pointer; background: #f0f0f0; padding: 4px 10px; border-radius: 4px; }
+    .action-icon.active { color: #ff4d4f; }
+    
+    /* 评论直接显示 */
+    .comment-section { background: #f7f7f7; border-radius: 4px; padding: 8px; margin-top: 5px; display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+    .comment-item { color: #333; }
+    .comment-name { color: #576b95; font-weight: 600; }
+    .comment-input-area { display: flex; gap: 5px; margin-top: 5px; border-top: 1px solid #eee; padding-top: 5px;}
+    .comment-input-area input { flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 5px; font-size: 12px; outline: none;}
+    .comment-input-area button { background: #07c160; color: #fff; border: none; border-radius: 4px; padding: 0 10px; font-size: 12px; }
+
+    .post-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #fff; z-index: 1000; flex-direction: column; padding: 20px; }
+    .post-modal.active { display: flex; }
+    .post-modal textarea { flex: 1; border: none; outline: none; font-size: 16px; margin-top: 10px; resize: none; }
+    .modal-footer { display: flex; gap: 10px; margin-top: 15px; }
+    .modal-footer button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+    .modal-footer button.send { background: #07c160; color: #fff; }
+</style>
+</head>
+<body>
+    <div class="header">
+        <div class="back-btn" onclick="window.location.href='index.html'">&lt; 返回</div>
+        <div class="header-title">朋友圈</div>
+        <div class="action-btn" onclick="openPostModal()">📷</div>
+    </div>
+
+    <div class="moment-list" id="momentList"></div>
+
+    <div class="post-modal" id="postModal">
+        <div style="display:flex; justify-content:space-between;"><span style="font-size:18px; font-weight:600;">发表动态</span><span style="cursor:pointer;" onclick="closePostModal()">取消</span></div>
+        <textarea id="postContent" placeholder="这一刻的想法..."></textarea>
+        <div class="modal-footer"><button class="send" onclick="submitPost()">发表</button></div>
+    </div>
+
+    <!-- 隐藏的封面上传 -->
+    <input type="file" id="coverUpload" accept="image/*" style="display: none;" onchange="handleCoverUpload(event)">
+
+<script>
+    let moments = JSON.parse(localStorage.getItem('myMoments')) || [];
+    let cardLibrary = JSON.parse(localStorage.getItem('chatCards')) || [{text:'好看！'}];
+    let coverImg = localStorage.getItem('momentsCover') || '';
+
+    window.onload = () => {
+        renderMoments();
+        const customCss = localStorage.getItem('customCssUI');
+        if (customCss) { const style = document.createElement('style'); style.innerHTML = customCss; document.head.appendChild(style); }
+    };
+
+    function renderMoments() {
+        const list = document.getElementById('momentList');
+        let coverStyle = coverImg ? `background-image: url('${coverImg}');` : '';
+        list.innerHTML = `<div class="cover-area" style="${coverStyle}" onclick="document.getElementById('coverUpload').click()"></div>`;
+
+        if (moments.length === 0) {
+            list.innerHTML += '<div style="text-align:center; color:#999; margin-top:50px; font-size:14px;">还没有动态~</div>';
+            return;
+        }
+
+        [...moments].reverse().forEach(moment => {
+            const card = document.createElement('div'); card.className = 'moment-card';
+            let commentsHtml = moment.comments.map(c => `<div class="comment-item"><span class="comment-name">${c.user}</span>：${c.text}</div>`).join('');
+
+            card.innerHTML = `
+                <div class="moment-avatar"></div>
+                <div class="moment-content">
+                    <div class="moment-name">${moment.author === 'me' ? '我' : 'Ta'}</div>
+                    <div class="moment-text">${moment.content}</div>
+                    <div class="moment-time">${moment.time}</div>
+                    
+                    <div class="moment-actions">
+                        <div class="action-icon ${moment.liked ? 'active' : ''}" onclick="toggleLike('${moment.id}')">${moment.liked ? '❤️ 取消赞' : '🤍 点赞'}</div>
+                    </div>
+                    
+                    <!-- 评论直接显示，没有隐藏框 -->
+                    <div class="comment-section">
+                        ${commentsHtml}
+                        <div class="comment-input-area">
+                            <input type="text" id="comment-input-${moment.id}" placeholder="评论...">
+                            <button onclick="addComment('${moment.id}')">发送</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            list.appendChild(card);
+        });
+    }
+
+    // 封面上传
+    function handleCoverUpload(event) {
+        const file = event.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            coverImg = e.target.result;
+            localStorage.setItem('momentsCover', coverImg);
+            renderMoments();
+        };
+        reader.readAsDataURL(file); event.target.value = '';
+    }
+
+    function openPostModal() { document.getElementById('postModal').classList.add('active'); }
+    function closePostModal() { document.getElementById('postModal').classList.remove('active'); document.getElementById('postContent').value = ''; }
+
+    function submitPost() {
+        const content = document.getElementById('postContent').value.trim();
+        if (!content) return alert('不能为空');
+        const now = new Date();
+        moments.push({ id: Date.now().toString(), author: 'me', content: content, time: `${now.getMonth()+1}月${now.getDate()}日`, liked: false, comments: [] });
+        saveMoments(); closePostModal();
+
+        // 模拟对方点赞和评论（内容从字卡库抽）
+        setTimeout(() => {
+            const m = moments[moments.length - 1];
+            m.liked = true;
+            const randomText = cardLibrary[Math.floor(Math.random() * cardLibrary.length)].text;
+            m.comments.push({ user: 'Ta', text: randomText });
+            saveMoments(); alert('对方点赞并评论了你的朋友圈！');
+        }, 4000);
+    }
+
+    function toggleLike(id) {
+        const m = moments.find(x => x.id === id); m.liked = !m.liked; saveMoments();
+    }
+
+    function addComment(id) {
+        const input = document.getElementById(`comment-input-${id}`);
+        const text = input.value.trim(); if (!text) return;
+        const m = moments.find(x => x.id === id);
+        m.comments.push({ user: '我', text: text });
+        saveMoments();
+    }
+
+    function saveMoments() { localStorage.setItem('myMoments', JSON.stringify(moments)); renderMoments(); }
+</script>
+</body>
+</html>
